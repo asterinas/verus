@@ -510,7 +510,7 @@ fn run() -> Result<(), String> {
             return Err(format!("rustup failed"));
         }
         let active_toolchain_re =
-            Regex::new(r"^(([A-Za-z0-9.-]+)-(?:aarch64|x86_64)-[A-Za-z0-9]+-[A-Za-z0-9-]+)")
+        Regex::new(r"^(([A-Za-z0-9.-]+)-(?:aarch64|x86_64)-[A-Za-z0-9]+-[A-Za-z0-9-]+) \((?:overridden|environment override) by '?(.*)'?\)")
                 .unwrap();
         let stdout = std::str::from_utf8(&output.stdout)
             .map_err(|_| format!("rustup output is invalid utf8"))?;
