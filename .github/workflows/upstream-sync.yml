@@ -1,0 +1,112 @@
+name: Sync Upstream Verus & Dispatch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 23 * * *"
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      continue: ${{ steps.version-check.outputs.continue }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/verus-lang/verus.git || true
+          git fetch upstream main
+
+      - name: Read versions
+        id: version-check
+        run: |
+          # upstream version
+          UPSTREAM_VERSION=$(git show upstream/main:rust-toolchain.toml | grep '^channel' | awk -F'"' '{print $2}')
+          echo "Upstream version: $UPSTREAM_VERSION"
+          
+          # local fork version
+          VERUS_VERSION=$(grep '^channel' rust-toolchain.toml | awk -F'"' '{print $2}')
+          echo "Local VERUS_VERSION: $VERUS_VERSION"
+
+          if [ "$UPSTREAM_VERSION" != "$VERUS_VERSION" ]; then
+            echo "Version changed! Fail workflow and create issue."
+            echo "continue=false" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "Version unchanged."
+            echo "continue=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create issue if version changed
+        if: failure()
+        uses: peter-evans/create-issue-from-file@v6
+        with:
+          title: "Detected upstream Verus rust-toolchain version change"
+          content: |
+            Detected upstream Verus rust-toolchain version change.
+
+            The [upstream repo](https://github.com/verus-lang/verus) has updated its rust-toolchain channel version.
+
+            Automation is halted.
+
+            Old version: ${{ steps.version-check.outputs.VERUS_VERSION }}
+            New version: ${{ steps.version-check.outputs.UPSTREAM_VERSION }}
+            Upstream commit: $(git rev-parse upstream/main)
+
+            Please manually update local code before re-running this workflow.
+          assignees: your-github-username
+          labels: automation
+          issue-reuse-message: "An open issue already exists for rust-toolchain version change."
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  update-test:
+    needs: check-version
+    if: needs.check-version.outputs.continue == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git for CI
+        run: |
+          git config user.name "Verus CI Bot"
+          git config user.email "ci@asterinas.verus"
+
+      - name: Fetch upstream & origin
+        run: |
+          git remote add upstream https://github.com/verus-lang/verus.git || true
+          git fetch upstream main
+          git fetch origin update-test
+
+      - name: Switch to update-test
+        run: git checkout update-test
+
+      - name: Reset update-test to upstream/main
+        run: git reset --hard upstream/main
+
+      - name: Cherry-pick "Fix for asterinas" commit
+        run: |
+          COMMIT_SHA=$(git log main --grep="Fix for asterinas" --pretty=format:"%H" -n 1)
+          if [ -z "$COMMIT_SHA" ]; then
+            echo "No commit with message 'Fix for asterinas' found on main. Aborting."
+            exit 1
+          else
+            git cherry-pick $COMMIT_SHA
+          fi
+
+      - name: Push update-test to origin
+        run: git push origin update-test --force
+
+      - name: Repository dispatch to vostd
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.VERUS_TEST_TOKEN }}
+          repository: asterinas/vostd
+          event-type: verus-update-test
+          client-payload: '{"branch":"main"}'
