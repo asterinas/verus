@@ -1,0 +1,48 @@
+name: Promote Update-Test to Main & Version
+
+on:
+  repository_dispatch:
+    types: [verus-update-test-success]
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout update-test
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.client_payload.branch }}
+          fetch-depth: 0
+
+      - name: Configure Git for CI
+        run: |
+          git config user.name "Verus CI Bot"
+          git config user.email "ci@asterinas.verus"
+
+      - name: Read version branch from rust-toolchain.toml
+        id: read-version
+        run: |
+          VERUS_VERSION=$(grep '^channel' rust-toolchain.toml | awk -F'"' '{print $2}')
+          echo "VERUS_VERSION=$VERUS_VERSION" >> $GITHUB_ENV
+          echo "Using version branch: $VERUS_VERSION"
+
+      - name: Push to version branch
+        run: git push origin HEAD:${{ env.VERUS_VERSION }} --force
+
+      - name: Fetch main and origin
+        run: |
+          git fetch origin main --tags
+          git fetch --all
+
+      - name: Cherry-pick workflow commit from main
+        run: |
+          WORKFLOW_COMMIT=$(git log origin/main --grep="Add Verus update test workflow" --pretty=format:"%H" -n 1)
+          if [ -z "$WORKFLOW_COMMIT" ]; then
+            echo "No workflow commit found on main. Aborting."
+            exit 1
+          else
+            git cherry-pick $WORKFLOW_COMMIT
+          fi
+
+      - name: Push to main
+        run: git push origin HEAD:main --force
