@@ -57,11 +57,20 @@ enum VerusIOTarget {
 enum VerusSpecTarget {
     IOTarget(VerusIOTarget),
     FnOrLoop(AnyFnOrLoop),
+    ImplBlock(syn::ItemImpl),
 }
 
 impl syn::parse::Parse for VerusSpecTarget {
     fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<VerusSpecTarget> {
         use syn::parse::discouraged::Speculative;
+        
+        // Try to parse as impl block first
+        let fork = input.fork();
+        if let Ok(impl_block) = fork.parse::<syn::ItemImpl>() {
+            input.advance_to(&fork);
+            return Ok(VerusSpecTarget::ImplBlock(impl_block));
+        }
+        
         let fork = input.fork();
         if let Ok(fn_or_loop) = fork.parse() {
             input.advance_to(&fork);
@@ -149,6 +158,19 @@ pub(crate) fn rewrite_verus_attribute(
     }
     if !contains_external {
         attributes.push(quote_spanned!(item.span() => #[verifier::verify]));
+    }
+
+    // Special handling for impl blocks - mark all methods as impl methods
+    if let syn::Item::Impl(ref mut impl_item) = item {
+        for impl_item in &mut impl_item.items {
+            if let syn::ImplItem::Fn(ref mut method) = impl_item {
+                // Add a marker attribute to indicate this is an impl method
+                method.attrs.push(syn::parse_quote! {
+                    #[doc(hidden)]
+                    #[verus_impl_method_marker]
+                });
+            }
+        }
     }
 
     let mut new_stream = quote_spanned! {item.span()=>
@@ -307,6 +329,9 @@ pub(crate) fn rewrite_verus_spec(
         VerusSpecTarget::IOTarget(i) => {
             rewrite_verus_spec_on_expr_local(erase, outer_attr_tokens, i)
         }
+        VerusSpecTarget::ImplBlock(impl_block) => {
+            rewrite_verus_spec_on_impl_block(erase, outer_attr_tokens, impl_block)
+        }
     }
 }
 
@@ -366,6 +391,26 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
 
             let mut new_stream = TokenStream::new();
 
+            // Check if this function has the impl method marker
+            let is_impl_method = fun.attrs.iter().any(|attr| {
+                if let syn::Meta::Path(path) = &attr.meta {
+                    if let Some(ident) = path.get_ident() {
+                        return ident == "verus_impl_method_marker";
+                    }
+                }
+                false
+            });
+
+            // Remove the marker attribute as it was only for internal use
+            fun.attrs.retain(|attr| {
+                if let syn::Meta::Path(path) = &attr.meta {
+                    if let Some(ident) = path.get_ident() {
+                        return ident != "verus_impl_method_marker";
+                    }
+                }
+                true
+            });
+
             // Create a copy of unverified function.
             // To avoid misuse of the unverified function,
             // we add `requires false` and thus prevent verified function to use it.
@@ -375,8 +420,8 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
                 extra_funs.iter().for_each(|f| f.to_tokens(&mut new_stream));
             }
 
-            // Update function signature based on verus_spec.
-            let spec_stmts = syntax::sig_specs_attr(erase, spec_attr, &mut fun.sig, false, false);
+            // Update function signature based on verus_spec, using the detected impl method flag
+            let spec_stmts = syntax::sig_specs_attr(erase, spec_attr, &mut fun.sig, is_impl_method, false);
 
             // Create const proxy function if it is a const function.
             if fun.sig.constness.is_some() {
@@ -422,6 +467,35 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
             );
             closure.body = Box::new(Expr::Verbatim(new_body));
             closure.to_token_stream().into()
+        }
+        AnyFnOrLoop::ImplMethod(mut method) => {
+            let spec_attr =
+                verus_syn::parse_macro_input!(outer_attr_tokens as verus_syn::SignatureSpecAttr);
+
+            method.attrs.push(mk_verus_attr_syn(method.span(), quote! { verus_macro }));
+
+            let mut new_stream = TokenStream::new();
+
+            // Create a copy of unverified function.
+            // To avoid misuse of the unverified function,
+            // we add `requires false` and thus prevent verified function to use it.
+            // Allow unverified code to use the function without changing in/output.
+            if let Some(with) = &spec_attr.spec.with {
+                let extra_funs = rewrite_unverified_impl_func(&mut method, with.with.span());
+                extra_funs.iter().for_each(|f| f.to_tokens(&mut new_stream));
+            }
+
+            // Update function signature based on verus_spec.
+            let spec_stmts = syntax::sig_specs_attr(erase, spec_attr, &mut method.sig, true, false);
+
+            // Add the spec/proof (requires/ensures) to the function body.
+            let new_stmts = spec_stmts.into_iter().map(|s| parse2(quote! { #s }).unwrap());
+            let _ = method.block.stmts.splice(0..0, new_stmts);
+
+            // Parse and replace proof_xxx!() inside function and replace panic.
+            replace_block(erase, &mut method.block);
+            method.to_tokens(&mut new_stream);
+            proc_macro::TokenStream::from(new_stream)
         }
         AnyFnOrLoop::TraitMethod(mut method) => {
             // Note: default trait methods appear in the AnyFnOrLoop::Fn case, not here
@@ -698,4 +772,72 @@ fn rewrite_unverified_func(fun: &mut syn::ItemFn, span: proc_macro2::Span) -> Ve
     fun.sig.ident = syn::Ident::new(&format!("{VERIFIED}_{x}"), x.span());
     ret.push(unverified_fun);
     ret
+}
+
+// Create a copy of impl method with unverified function signature without a
+// function body, to enable seamless use of unverified call to the function in
+// verification.
+fn rewrite_unverified_impl_func(method: &mut syn::ImplItemFn, span: proc_macro2::Span) -> Vec<syn::ImplItemFn> {
+    let mut ret = vec![];
+    let mut unverified_method = method.clone();
+    
+    let stmts = vec![
+        syn::Stmt::Expr(
+            syn::Expr::Verbatim(
+                quote_spanned_builtin!(verus_builtin, span => #verus_builtin::requires([false])),
+            ),
+            Some(syn::token::Semi { spans: [span] }),
+        ),
+        syn::Stmt::Expr(
+            syn::Expr::Verbatim(quote_spanned! {span => unimplemented!()}),
+            Some(syn::token::Semi { spans: [span] }),
+        ),
+    ];
+    unverified_method.attrs.push(mk_verus_attr_syn(span, quote! { external_body }));
+    unverified_method.block.stmts.clear();
+    unverified_method.block.stmts.extend(stmts);
+    
+    // change name to verified_{fname}
+    let x = &method.sig.ident;
+    method.sig.ident = syn::Ident::new(&format!("{VERIFIED}_{x}"), x.span());
+    ret.push(unverified_method);
+    ret
+}
+
+// Handle #[verus_spec] applied to an entire impl block
+fn rewrite_verus_spec_on_impl_block(
+    erase: EraseGhost,
+    outer_attr_tokens: proc_macro::TokenStream,
+    mut impl_block: syn::ItemImpl,
+) -> proc_macro::TokenStream {
+    // Parse the spec attribute
+    let spec_attr = verus_syn::parse_macro_input!(outer_attr_tokens as verus_syn::SignatureSpecAttr);
+    
+    let mut new_stream = TokenStream::new();
+    
+    // Process each method in the impl block
+    for item in &mut impl_block.items {
+        if let syn::ImplItem::Fn(method) = item {
+            method.attrs.push(mk_verus_attr_syn(method.span(), quote! { verus_macro }));
+
+            // Create a copy of unverified function if needed
+            if let Some(with) = &spec_attr.spec.with {
+                let extra_funs = rewrite_unverified_impl_func(method, with.with.span());
+                extra_funs.iter().for_each(|f| f.to_tokens(&mut new_stream));
+            }
+
+            // Update function signature based on verus_spec - set is_impl_fn to true
+            let spec_stmts = syntax::sig_specs_attr(erase.clone(), spec_attr.clone(), &mut method.sig, true, false);
+
+            // Add the spec/proof (requires/ensures) to the function body
+            let new_stmts = spec_stmts.into_iter().map(|s| parse2(quote! { #s }).unwrap());
+            let _ = method.block.stmts.splice(0..0, new_stmts);
+
+            // Parse and replace proof_xxx!() inside function and replace panic
+            replace_block(erase.clone(), &mut method.block);
+        }
+    }
+    
+    impl_block.to_tokens(&mut new_stream);
+    proc_macro::TokenStream::from(new_stream)
 }

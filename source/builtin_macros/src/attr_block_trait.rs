@@ -69,6 +69,7 @@ impl AnyAttrBlock for TraitItemFn {
 #[derive(Debug, PartialEq, Eq)]
 pub enum AnyFnOrLoop {
     Fn(syn::ItemFn),
+    ImplMethod(syn::ImplItemFn),
     TraitMethod(syn::TraitItemFn),
     Loop(syn::ExprLoop),
     ForLoop(syn::ExprForLoop),
@@ -79,7 +80,7 @@ pub enum AnyFnOrLoop {
 impl syn::parse::Parse for AnyFnOrLoop {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         use syn::parse::discouraged::Speculative;
-        // Try to parse as ItemFn
+        // Try to parse as ItemFn first
         let fork = input.fork();
         if let Ok(func) = fork.parse::<ItemFn>() {
             input.advance_to(&fork);
