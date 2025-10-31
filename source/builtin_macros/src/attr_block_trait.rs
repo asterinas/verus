@@ -69,7 +69,7 @@ impl AnyAttrBlock for TraitItemFn {
 #[derive(Debug, PartialEq, Eq)]
 pub enum AnyFnOrLoop {
     Fn(syn::ItemFn),
-    ImplMethod(syn::ImplItemFn),
+    //ImplMethod(syn::ImplItemFn),
     TraitMethod(syn::TraitItemFn),
     Loop(syn::ExprLoop),
     ForLoop(syn::ExprForLoop),

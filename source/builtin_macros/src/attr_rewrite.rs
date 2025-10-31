@@ -57,7 +57,7 @@ enum VerusIOTarget {
 enum VerusSpecTarget {
     IOTarget(VerusIOTarget),
     FnOrLoop(AnyFnOrLoop),
-    ImplBlock(syn::ItemImpl),
+    //ImplBlock(syn::ItemImpl),
 }
 
 impl syn::parse::Parse for VerusSpecTarget {
@@ -65,11 +65,11 @@ impl syn::parse::Parse for VerusSpecTarget {
         use syn::parse::discouraged::Speculative;
         
         // Try to parse as impl block first
-        let fork = input.fork();
+        /* let fork = input.fork();
         if let Ok(impl_block) = fork.parse::<syn::ItemImpl>() {
             input.advance_to(&fork);
             return Ok(VerusSpecTarget::ImplBlock(impl_block));
-        }
+        }*/
         
         let fork = input.fork();
         if let Ok(fn_or_loop) = fork.parse() {
@@ -164,11 +164,9 @@ pub(crate) fn rewrite_verus_attribute(
     if let syn::Item::Impl(ref mut impl_item) = item {
         for impl_item in &mut impl_item.items {
             if let syn::ImplItem::Fn(ref mut method) = impl_item {
-                // Add a marker attribute to indicate this is an impl method
-                method.attrs.push(syn::parse_quote! {
-                    #[doc(hidden)]
-                    #[verus_impl_method_marker]
-                });
+                // Add a marker attribute using allow(unused) to avoid affecting documentation
+                // This is safer than custom attributes that might not be recognized
+                method.attrs.push(syn::parse_quote!(#[allow(unused, verus_impl_method_marker)]));
             }
         }
     }
@@ -329,9 +327,9 @@ pub(crate) fn rewrite_verus_spec(
         VerusSpecTarget::IOTarget(i) => {
             rewrite_verus_spec_on_expr_local(erase, outer_attr_tokens, i)
         }
-        VerusSpecTarget::ImplBlock(impl_block) => {
+        /*VerusSpecTarget::ImplBlock(impl_block) => {
             rewrite_verus_spec_on_impl_block(erase, outer_attr_tokens, impl_block)
-        }
+        }*/
     }
 }
 
@@ -393,9 +391,12 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
 
             // Check if this function has the impl method marker
             let is_impl_method = fun.attrs.iter().any(|attr| {
-                if let syn::Meta::Path(path) = &attr.meta {
-                    if let Some(ident) = path.get_ident() {
-                        return ident == "verus_impl_method_marker";
+                if let Some(ident) = attr.path().get_ident() {
+                    if ident == "allow" {
+                        // Check if it contains our marker in the allow list
+                        if let syn::Meta::List(meta_list) = &attr.meta {
+                            return meta_list.tokens.to_string().contains("verus_impl_method_marker");
+                        }
                     }
                 }
                 false
@@ -403,9 +404,12 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
 
             // Remove the marker attribute as it was only for internal use
             fun.attrs.retain(|attr| {
-                if let syn::Meta::Path(path) = &attr.meta {
-                    if let Some(ident) = path.get_ident() {
-                        return ident != "verus_impl_method_marker";
+                if let Some(ident) = attr.path().get_ident() {
+                    if ident == "allow" {
+                        // Remove the allow attribute that contains our marker
+                        if let syn::Meta::List(meta_list) = &attr.meta {
+                            return !meta_list.tokens.to_string().contains("verus_impl_method_marker");
+                        }
                     }
                 }
                 true
@@ -468,7 +472,7 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
             closure.body = Box::new(Expr::Verbatim(new_body));
             closure.to_token_stream().into()
         }
-        AnyFnOrLoop::ImplMethod(mut method) => {
+        /* AnyFnOrLoop::ImplMethod(mut method) => {
             let spec_attr =
                 verus_syn::parse_macro_input!(outer_attr_tokens as verus_syn::SignatureSpecAttr);
 
@@ -496,7 +500,7 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
             replace_block(erase, &mut method.block);
             method.to_tokens(&mut new_stream);
             proc_macro::TokenStream::from(new_stream)
-        }
+        }*/
         AnyFnOrLoop::TraitMethod(mut method) => {
             // Note: default trait methods appear in the AnyFnOrLoop::Fn case, not here
             let spec_attr =
@@ -777,6 +781,7 @@ fn rewrite_unverified_func(fun: &mut syn::ItemFn, span: proc_macro2::Span) -> Ve
 // Create a copy of impl method with unverified function signature without a
 // function body, to enable seamless use of unverified call to the function in
 // verification.
+/* 
 fn rewrite_unverified_impl_func(method: &mut syn::ImplItemFn, span: proc_macro2::Span) -> Vec<syn::ImplItemFn> {
     let mut ret = vec![];
     let mut unverified_method = method.clone();
@@ -840,4 +845,4 @@ fn rewrite_verus_spec_on_impl_block(
     
     impl_block.to_tokens(&mut new_stream);
     proc_macro::TokenStream::from(new_stream)
-}
+}*/
