@@ -460,10 +460,9 @@ pub fn merge_friendly_name_map(other_map: &HashMap<Path, String>) {
         }
         let map = map_opt.as_mut().unwrap();
         for (path, name) in other_map {
-            if map.contains_key(path) {
-                eprintln!("Verus Bug: duplicate friendly name {path:#?}");
+            if !map.contains_key(path) {
+                map.insert(path.clone(), name.clone());
             }
-            map.insert(path.clone(), name.clone());
         }
     }
 }
