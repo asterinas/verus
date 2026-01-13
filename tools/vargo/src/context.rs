@@ -70,7 +70,7 @@ fn get_rust_toolchain(
 
     if !in_nextest {
         let active_toolchain_re =
-            Regex::new(r"^(([A-Za-z0-9.-]+)-(?:aarch64|x86_64)-[A-Za-z0-9]+-[A-Za-z0-9-]+)")
+            Regex::new(r"^(([A-Za-z0-9.-]+)-(?:aarch64|x86_64)-[A-Za-z0-9]+-[A-Za-z0-9-]+) \((?:overridden|environment override) by '?(.*)'?\)")
                 .unwrap();
 
         let rustup_output = run_rustup_toolchain()?;
