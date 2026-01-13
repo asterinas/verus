@@ -1360,4 +1360,7 @@ pub const RUSTC_ATTRS_OK_TO_IGNORE: &[&str] = &[
     "rustc_insignificant_dtor",
     // Boxes
     "rustc_box",
+    // Support for separate definition of struct type and member methods
+    "rustc_has_incoherent_inherent_impls",
+    "rustc_allow_incoherent_impl",
 ];
