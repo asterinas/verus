@@ -124,6 +124,12 @@ jobs:
       - name: Reset update-test to upstream/main
         run: git reset --hard upstream/main
 
+      - name: Merge Pending Upstream PRs
+        run: |
+          git fetch upstream pull/2086/head:pr-2086
+          git fetch upstream pull/2087/head:pr-2087
+          git merge pr-2086 pr-2087 --no-edit
+
       - name: Cherry-pick "Fix for asterinas" commit
         run: |
           COMMIT_SHA=$(git log main --grep="Fix for asterinas" --pretty=format:"%H" -n 1)
