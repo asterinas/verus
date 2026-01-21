@@ -492,6 +492,29 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
                 extra_funs.iter().for_each(|f| f.to_tokens(&mut new_stream));
             }
 
+            // ----------- Inject doc attribute in rustdoc mode using verus_syn conversion -------------
+            if crate::rustdoc::env_rustdoc() {
+                let mut verus_fun: verus_syn::ItemFn = syn_to_verus_syn(fun.clone());
+                // Copy spec information from spec_attr.spec to verus_fun.sig.spec
+                // This allows rustdoc::process_item_fn to generate documentation
+                verus_fun.sig.spec = spec_attr.spec.clone();
+                
+                crate::rustdoc::process_item_fn(&mut verus_fun);
+                // Instead of replacing the whole function, inject only the doc attribute
+                for attr in &verus_fun.attrs {
+                    if let Some(ident) = attr.path().get_ident() {
+                        if ident == "doc" {
+                            if let Ok(doc_attrs) = syn::Attribute::parse_outer.parse(attr.to_token_stream().into()) {
+                                for doc_attr in doc_attrs {
+                                    fun.attrs.push(doc_attr);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // ----------- End injection -------------
+
             // Update function signature based on verus_spec.
             let spec_stmts =
                 syntax::sig_specs_attr(erase, spec_attr, &mut fun.sig, is_impl_fn, false);
