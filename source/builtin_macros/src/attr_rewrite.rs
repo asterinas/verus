@@ -37,6 +37,7 @@
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote, quote_spanned};
 use syn::visit_mut::VisitMut;
+use syn::parse::Parser;
 use syn::{Expr, Item, ItemConst, parse2, spanned::Spanned};
 
 use crate::{
@@ -492,23 +493,16 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
                 extra_funs.iter().for_each(|f| f.to_tokens(&mut new_stream));
             }
 
-            // ----------- Inject doc attribute in rustdoc mode using verus_syn conversion -------------
+            // ----------- Inject doc attribute in rustdoc mode -------------
             if crate::rustdoc::env_rustdoc() {
                 let mut verus_fun: verus_syn::ItemFn = syn_to_verus_syn(fun.clone());
-                // Copy spec information from spec_attr.spec to verus_fun.sig.spec
-                // This allows rustdoc::process_item_fn to generate documentation
                 verus_fun.sig.spec = spec_attr.spec.clone();
-                
                 crate::rustdoc::process_item_fn(&mut verus_fun);
-                // Instead of replacing the whole function, inject only the doc attribute
+                
                 for attr in &verus_fun.attrs {
-                    if let Some(ident) = attr.path().get_ident() {
-                        if ident == "doc" {
-                            if let Ok(doc_attrs) = syn::Attribute::parse_outer.parse(attr.to_token_stream().into()) {
-                                for doc_attr in doc_attrs {
-                                    fun.attrs.push(doc_attr);
-                                }
-                            }
+                    if attr.path().is_ident("doc") && attr.to_token_stream().to_string().contains("verusdoc_special_attr") {
+                        if let Ok(doc_attrs) = syn::Attribute::parse_outer.parse(attr.to_token_stream().into()) {
+                            fun.attrs.extend(doc_attrs);
                         }
                     }
                 }
