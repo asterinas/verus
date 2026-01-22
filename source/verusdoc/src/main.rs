@@ -289,22 +289,35 @@ fn update_docblock(
     }
 
     // Add mode info to the signature
+    // If there are multiple ModeInfo attrs (caused by the `#[verus_spec]` macro expansion),
+    // choose the one with a non-empty `ret_name`.
+    let mode_infos: Vec<&DocSigInfo> = attrs
+        .iter()
+        .filter_map(|a| match a {
+            VerusDocAttr::ModeInfo(info) => Some(info),
+            _ => None,
+        })
+        .collect();
+    let info_to_use = mode_infos
+        .iter()
+        .find(|info| !info.ret_name.is_empty())
+        .or_else(|| mode_infos.first());
 
-    for attr in attrs.iter() {
-        match attr {
-            VerusDocAttr::ModeInfo(doc_mode_info) => {
-                update_sig_info(
-                    docblock_elem,
-                    UpdateSigMode::DocSigInfo(doc_mode_info),
-                    opt_trait_info,
-                );
-                break;
+    if let Some(info) = info_to_use {
+        update_sig_info(
+            docblock_elem,
+            UpdateSigMode::DocSigInfo(info),
+            opt_trait_info,
+        );
+    } else {
+        for attr in attrs.iter() {
+            match attr {
+                VerusDocAttr::BroadcastGroup => {
+                    update_sig_info(docblock_elem, UpdateSigMode::BroadcastGroup, opt_trait_info);
+                    break;
+                }
+                _ => {}
             }
-            VerusDocAttr::BroadcastGroup => {
-                update_sig_info(docblock_elem, UpdateSigMode::BroadcastGroup, opt_trait_info);
-                break;
-            }
-            _ => {}
         }
     }
 }

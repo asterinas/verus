@@ -493,10 +493,22 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
                 extra_funs.iter().for_each(|f| f.to_tokens(&mut new_stream));
             }
 
-            // ----------- Inject doc attribute in rustdoc mode -------------
+            // Inject doc attribute in rustdoc mode
             if crate::rustdoc::env_rustdoc() {
                 let mut verus_fun: verus_syn::ItemFn = syn_to_verus_syn(fun.clone());
                 verus_fun.sig.spec = spec_attr.spec.clone();
+                
+                // Set return variable name
+                if let Some((verus_syn::Pat::Ident(pat_ident), _)) = &spec_attr.ret_pat {
+                    if let verus_syn::ReturnType::Type(_, _, opt_name, _) = &mut verus_fun.sig.output {
+                        *opt_name = Some(Box::new((
+                            verus_syn::token::Paren::default(),
+                            verus_syn::Pat::Ident(pat_ident.clone()),
+                            verus_syn::Token![:](pat_ident.span()),
+                        )));
+                    }
+                }
+                
                 crate::rustdoc::process_item_fn(&mut verus_fun);
                 
                 for attr in &verus_fun.attrs {
@@ -507,7 +519,6 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
                     }
                 }
             }
-            // ----------- End injection -------------
 
             // Update function signature based on verus_spec.
             let spec_stmts =
