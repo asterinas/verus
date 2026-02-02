@@ -29,8 +29,8 @@
 // some data explaining the function mode, param modes, and return mode.
 
 use proc_macro2::Span;
-use std::iter::FromIterator;
 use quote::ToTokens;
+use std::iter::FromIterator;
 use verus_syn::punctuated::Punctuated;
 use verus_syn::spanned::Spanned;
 use verus_syn::token;
@@ -404,8 +404,8 @@ fn tighten_type_spacing(s: &str) -> String {
         if b == b' ' {
             let prev = if i > 0 { bytes[i - 1] } else { 0 };
             let next = if i + 1 < bytes.len() { bytes[i + 1] } else { 0 };
-            let remove = matches!(prev, b'<' | b'(' | b',' | b':')
-                || matches!(next, b'>' | b')' | b',');
+            let remove =
+                matches!(prev, b'<' | b'(' | b',' | b':') || matches!(next, b'>' | b')' | b',');
             if !remove {
                 out.push(' ');
             }

@@ -36,8 +36,8 @@
 /// - Refer to `examples/syntax_attr.rs`.
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote, quote_spanned};
-use syn::visit_mut::VisitMut;
 use syn::parse::Parser;
+use syn::visit_mut::VisitMut;
 use syn::{Expr, Item, ItemConst, parse2, spanned::Spanned};
 
 use crate::{
@@ -495,7 +495,9 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
 
                 // Set return variable name
                 if let Some((verus_syn::Pat::Ident(pat_ident), _)) = &spec_attr.ret_pat {
-                    if let verus_syn::ReturnType::Type(_, _, opt_name, _) = &mut verus_fun.sig.output {
+                    if let verus_syn::ReturnType::Type(_, _, opt_name, _) =
+                        &mut verus_fun.sig.output
+                    {
                         *opt_name = Some(Box::new((
                             verus_syn::token::Paren::default(),
                             verus_syn::Pat::Ident(pat_ident.clone()),
@@ -541,10 +543,12 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
             if crate::rustdoc::env_rustdoc() {
                 let mut verus_fun: verus_syn::ItemFn = syn_to_verus_syn(fun.clone());
                 verus_fun.sig.spec = spec_attr.spec.clone();
-                
+
                 // Set return variable name
                 if let Some((verus_syn::Pat::Ident(pat_ident), _)) = &spec_attr.ret_pat {
-                    if let verus_syn::ReturnType::Type(_, _, opt_name, _) = &mut verus_fun.sig.output {
+                    if let verus_syn::ReturnType::Type(_, _, opt_name, _) =
+                        &mut verus_fun.sig.output
+                    {
                         *opt_name = Some(Box::new((
                             verus_syn::token::Paren::default(),
                             verus_syn::Pat::Ident(pat_ident.clone()),
@@ -552,12 +556,16 @@ pub(crate) fn rewrite_verus_spec_on_fun_or_loop(
                         )));
                     }
                 }
-                
+
                 crate::rustdoc::process_item_fn(&mut verus_fun);
-                
+
                 for attr in &verus_fun.attrs {
-                    if attr.path().is_ident("doc") && attr.to_token_stream().to_string().contains("verusdoc_special_attr") {
-                        if let Ok(doc_attrs) = syn::Attribute::parse_outer.parse(attr.to_token_stream().into()) {
+                    if attr.path().is_ident("doc")
+                        && attr.to_token_stream().to_string().contains("verusdoc_special_attr")
+                    {
+                        if let Ok(doc_attrs) =
+                            syn::Attribute::parse_outer.parse(attr.to_token_stream().into())
+                        {
                             fun.attrs.extend(doc_attrs);
                         }
                     }
@@ -893,9 +901,11 @@ fn rewrite_unverified_func(
     );
     unverified_fun.attrs_mut().push(mk_verus_attr_syn(span, quote! { external_body }));
     if !crate::rustdoc::env_rustdoc() {
-        unverified_fun
-            .attrs_mut()
-            .push(crate::syntax::mk_rust_attr_syn(span, "doc", quote! {hidden}));
+        unverified_fun.attrs_mut().push(crate::syntax::mk_rust_attr_syn(
+            span,
+            "doc",
+            quote! {hidden},
+        ));
     }
     if let Some(block) = unverified_fun.block_mut() {
         // For an unverified function, if it is in keep mode,

@@ -256,13 +256,25 @@ fn update_docblock(
     }
 
     for spec_name in SPEC_NAMES.iter() {
-        let code_blocks: Vec<NodeRef> = attrs
+        let mut code_blocks: Vec<NodeRef> = attrs
             .iter()
             .filter_map(|a| match a {
                 VerusDocAttr::Specification(s, nr) if s == spec_name => Some(nr.clone()),
                 _ => None,
             })
             .collect();
+
+        // De-duplicate identical spec blocks (can happen with #[verus_spec] + rustdoc pass)
+        let mut seen: Vec<String> = Vec::new();
+        code_blocks.retain(|nr| {
+            let text = nr.text_contents();
+            if seen.iter().any(|t| t == &text) {
+                false
+            } else {
+                seen.push(text);
+                true
+            }
+        });
 
         let is_body = spec_name == &"body";
 
@@ -298,17 +310,11 @@ fn update_docblock(
             _ => None,
         })
         .collect();
-    let info_to_use = mode_infos
-        .iter()
-        .find(|info| !info.ret_name.is_empty())
-        .or_else(|| mode_infos.first());
+    let info_to_use =
+        mode_infos.iter().find(|info| !info.ret_name.is_empty()).or_else(|| mode_infos.first());
 
     if let Some(info) = info_to_use {
-        update_sig_info(
-            docblock_elem,
-            UpdateSigMode::DocSigInfo(info),
-            opt_trait_info,
-        );
+        update_sig_info(docblock_elem, UpdateSigMode::DocSigInfo(info), opt_trait_info);
     } else {
         for attr in attrs.iter() {
             match attr {
