@@ -848,6 +848,7 @@ fn rewrite_unverified_func(
         Some(syn::token::Semi { spans: [span] }),
     );
     unverified_fun.attrs_mut().push(mk_verus_attr_syn(span, quote! { external_body }));
+    unverified_fun.attrs_mut().push(crate::syntax::mk_rust_attr_syn(span, "doc", quote! {hidden}));
     if let Some(block) = unverified_fun.block_mut() {
         // For an unverified function, if it is in keep mode,
         // we erase the function body to avoid using
